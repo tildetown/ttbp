@@ -7,7 +7,8 @@ import time
 import subprocess
 
 from . import util
-from .core import parse_date
+from . import config
+#from .core import parse_date
 
 GOPHER_PROMPT = """
 
@@ -73,7 +74,7 @@ def publish_gopher(gopher_path, entry_filenames):
             if not os.path.exists(gopher_entry_symlink):
                 subprocess.call(["ln", "-s", entry_filename, gopher_entry_symlink])
 
-            label = "-".join(parse_date(entry_filename))
+            label = "-".join(util.parse_date(entry_filename))
             gophermap.write('0{file_label}\t{filename}\n'.format(
                 file_label=label,
                 filename=filename))
@@ -107,3 +108,11 @@ def setup_gopher(gopher_path):
         os.makedirs(gopher_entries)
 
     subprocess.call(["ln", "-s", gopher_entries, ttbp_gopher])
+
+def unpublish():
+    """blanks all gopher things and recreates the directories."""
+
+    subprocess.call(["rm", "-rf", config.GOPHER_PATH])
+    subprocess.call(["rm", "-rf", config.GOPHER_ENTRIES])
+    os.mkdir(config.GOPHER_ENTRIES)
+    subprocess.call(["ln", "-s", config.GOPHER_ENTRIES, config.GOPHER_PATH])

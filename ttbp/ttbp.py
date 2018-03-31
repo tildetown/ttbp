@@ -34,6 +34,7 @@ https://github.com/modgethanc/ttbp
 from __future__ import absolute_import
 
 import os
+import sys
 import tempfile
 import subprocess
 import time
@@ -50,7 +51,7 @@ from . import chatter
 from . import gopher
 from . import util
 
-__version__ = "0.11.2"
+__version__ = "0.12.0"
 __author__ = "endorphant <endorphant@tilde.town)"
 
 p = inflect.engine()
@@ -73,6 +74,7 @@ DEFAULT_SETTINGS = {
         "gopher": False,
         "publishing": False,
         "rainbows": False,
+        "post as nopub": False,
     }
 
 ## user globals
@@ -81,7 +83,8 @@ SETTINGS = {
         "publish dir": None,
         "gopher": False,
         "publishing": False,
-        "rainbows": False
+        "rainbows": False,
+        "post as nopub": False,
         }
 
 ## ttbp specific utilities
@@ -247,10 +250,7 @@ def init():
     """
 
     try:
-        input("""
-i don't recognize you, stranger. let's make friends.
-
-press <enter> to begin, or <ctrl-c> to get out of here.""")
+        input(config.intro_prompt)
     except KeyboardInterrupt:
         print("\n\nthanks for checking in! i'll always be here.\n\n")
         quit()
@@ -259,7 +259,7 @@ press <enter> to begin, or <ctrl-c> to get out of here.""")
 
     time.sleep(1)
     print("...")
-    time.sleep(1)
+    time.sleep(.5)
 
     ## record user in source list
     users = open(config.USERFILE, 'a')
@@ -272,7 +272,7 @@ press <enter> to begin, or <ctrl-c> to get out of here.""")
     print("\ngenerating feels at {path}...".format(path=config.PATH).rstrip())
     subprocess.call(["mkdir", config.PATH])
     subprocess.call(["mkdir", config.USER_CONFIG])
-    subprocess.call(["mkdir", config.USER_DATA])
+    subprocess.call(["mkdir", config.MAIN_FEELS])
 
     versionFile = os.path.join(config.PATH, "version")
     open(versionFile, "w").write(__version__)
@@ -291,13 +291,21 @@ press <enter> to begin, or <ctrl-c> to get out of here.""")
         f.write(config.DEFAULT_STYLE)
 
     ## run user-interactive setup and load core engine
-    time.sleep(1)
+    time.sleep(0.5)
     print("done setting up feels!")
     print("\nthese are the default settings. you can change any of them now, or change them later at any time!!")
     setup()
     core.load(SETTINGS)
 
-    input("\nyou're all good to go, "+chatter.say("friend")+"! hit <enter> to continue.\n\n")
+    input("""
+
+you're all good to go, {friend}! if you have any questions about how things
+work here, check out the documentation from the main menu, ask in IRC, or
+drop ~endorphant a line!
+
+hit <enter> to continue.
+""".format(friend=chatter.say("friend")))
+
     return ""
 
 def gen_header():
@@ -406,7 +414,7 @@ def setup_repair():
     save_settings()
 
     print("...")
-    time.sleep(1)
+    time.sleep(0.5)
     input("\nyou're all good to go, "+chatter.say("friend")+"! hit <enter> to continue.\n\n")
 
 def setup():
@@ -436,67 +444,73 @@ def setup():
         redraw(EJECT)
         return SETTINGS
 
-    if choice in QUITS:
+    if choice is not "":
+
+        if choice in QUITS:
+            redraw()
+            return SETTINGS
+
+        # editor selection
+        if settingList[int(choice)] == "editor":
+            SETTINGS.update({"editor": select_editor()})
+            redraw("text editor set to: {editor}".format(editor=SETTINGS["editor"]))
+            save_settings()
+            return setup()
+
+        # publishing selection
+        elif settingList[int(choice)] == "publishing":
+            SETTINGS.update({"publishing":select_publishing()})
+            core.reload_ttbprc(SETTINGS)
+            update_publishing()
+            redraw("publishing set to {publishing}".format(publishing=SETTINGS.get("publishing")))
+            save_settings()
+            return setup()
+
+        # publish dir selection
+        elif settingList[int(choice)] == "publish dir":
+            publish_dir = select_publish_dir()
+            SETTINGS.update({"publish dir": publish_dir})
+            #update_publishing()
+
+            if publish_dir is None:
+                redraw("sorry, i can't set a publish directory for you if you don't have html publishing enabled. please enable publishing to continue.")
+            else:
+                redraw("publishing your entries to {url}/index.html".format(
+                    url="/".join([config.LIVE+config.USER,
+                            str(SETTINGS.get("publish dir"))])))
+            save_settings()
+            return setup()
+
+        # gopher opt-in
+        elif settingList[int(choice)] == "gopher":
+            SETTINGS.update({'gopher': gopher.select_gopher()})
+            redraw('gopher publishing set to: {gopher}'.format(gopher=SETTINGS['gopher']))
+            update_gopher()
+            save_settings()
+            return setup()
+
+        # rainbow menu selection
+        elif settingList[int(choice)] == "rainbows":
+            SETTINGS.update({"rainbows": toggle_rainbows()})
+            redraw("rainbow menus set to {rainbow}".format(rainbow=SETTINGS.get("rainbows")))
+            save_settings()
+            return setup()
+
+        #nopub toggling
+        elif settingList[int(choice)] == "post as nopub":
+            SETTINGS.update({"post as nopub": toggle_pub_default()})
+            redraw("posting default set to {nopub}".format(nopub=SETTINGS.get("post as nopub")))
+            save_settings()
+            return setup()
+
+        input("\nyou're all good to go, {friend}! hit <enter> to continue.\n\n".format(friend=chatter.say("friend")))
         redraw()
+
         return SETTINGS
 
-    # editor selection
-    if settingList[int(choice)] == "editor":
-        SETTINGS.update({"editor": select_editor()})
-        redraw("text editor set to: {editor}".format(editor=SETTINGS["editor"]))
-        save_settings()
+    else:
+        redraw("now changing your settings. press <ctrl-c> if you didn't mean to do this.")
         return setup()
-
-    # publishing selection
-    elif settingList[int(choice)] == "publishing":
-        SETTINGS.update({"publishing":select_publishing()})
-        core.reload_ttbprc(SETTINGS)
-        update_publishing()
-        redraw("publishing set to {publishing}".format(publishing=SETTINGS.get("publishing")))
-        save_settings()
-        return setup()
-
-    # publish dir selection
-    elif settingList[int(choice)] == "publish dir":
-        publish_dir = select_publish_dir()
-        SETTINGS.update({"publish dir": publish_dir})
-        #update_publishing()
-
-        if publish_dir is None:
-            redraw("sorry, i can't set a publish directory for you if you don't have html publishing enabled. please enable publishing to continue.")
-        else:
-            redraw("publishing your entries to {url}/index.html".format(
-                url="/".join([config.LIVE+config.USER,
-                        str(SETTINGS.get("publish dir"))])))
-        save_settings()
-        return setup()
-
-    # gopher opt-in
-    elif settingList[int(choice)] == "gopher":
-        SETTINGS.update({'gopher': gopher.select_gopher()})
-        redraw('gopher publishing set to: {gopher}'.format(gopher=SETTINGS['gopher']))
-        update_gopher()
-        save_settings()
-        return setup()
-
-    # rainbow menu selection
-    elif settingList[int(choice)] == "rainbows":
-        SETTINGS.update({"rainbows": toggle_rainbows()})
-        redraw("rainbow menus set to {rainbow}".format(rainbow=SETTINGS.get("rainbows")))
-        save_settings()
-        return setup()
-
-    #nopub toggling
-    elif settingList[int(choice)] == "post as nopub":
-        SETTINGS.update({"post as nopub": toggle_pub_default()})
-        redraw("posting default set to {nopub}".format(nopub=SETTINGS.get("post as nopub")))
-        save_settings()
-        return setup()
-
-    input("\nyou're all good to go, {friend}! hit <enter> to continue.\n\n".format(friend=chatter.say("friend")))
-    redraw()
-
-    return SETTINGS
 
 def save_settings():
     """
@@ -516,7 +530,7 @@ def main_menu():
 
     menuOptions = [
             "record your feels",
-            "review your feels",
+            "manage your feels",
             "check out your neighbors",
             "browse global feels",
             "scribble some graffiti",
@@ -537,18 +551,13 @@ def main_menu():
     if choice == '0':
         redraw()
         today = time.strftime("%Y%m%d")
-        write_entry(os.path.join(config.USER_DATA, today+".txt"))
+        write_entry(os.path.join(config.MAIN_FEELS, today+".txt"))
         core.www_neighbors()
     elif choice == '1':
-        if core.publishing():
-            intro = "here are some options for reviewing your feels:"
-            redraw(intro)
-            review_menu(intro)
-            core.load_files()
-            core.write("index.html")
-        else:
-            redraw("your recorded feels, listed by date:")
-            view_feels(config.USER)
+        intro = "here are some options for managing your feels:"
+        redraw(intro)
+        review_menu(intro)
+        core.load_files()
     elif choice == '2':
         users = core.find_ttbps()
         prompt = "the following {usercount} {are} recording feels on ttbp:".format(
@@ -571,7 +580,7 @@ def main_menu():
         redraw()
         show_credits()
     elif choice == '8':
-        subprocess.call(["lynx", os.path.join(config.INSTALL_PATH, "..", "README.html")])
+        subprocess.call(["lynx", os.path.join(config.INSTALL_PATH, "..", "doc", "manual.html")])
         redraw()
     elif choice in QUITS:
         return stop()
@@ -614,26 +623,72 @@ def review_menu(intro=""):
 
     menuOptions = [
             "read over feels",
-            "modify feels publishing"
+            "modify feels publishing",
+            "backup your feels",
+            "import a feels backup",
+            "bury some feels",
+            "delete feels by day",
+            "purge all feels",
+            "wipe feels account"
             ]
 
     util.print_menu(menuOptions, SETTINGS.get("rainbows", False))
 
-    choice = util.list_select(menuOptions, "what would you like to do with your feels? (or 'back' to return home) ")
+    choice = util.list_select(menuOptions, "what would you like to do with your feels? (or 'q' to return home) ")
+
+    top = ""
+    hasfeels = len(os.listdir(config.MAIN_FEELS)) > 0
+    nofeels = "you don't have any feels to work with, "+chatter.say("friend")+"\n\n> "
 
     if choice is not False:
         if choice == 0:
-            redraw("your recorded feels, listed by date:")
-            view_feels(config.USER)
+            if hasfeels:
+                redraw("your recorded feels, listed by date:")
+                view_feels(config.USER)
+            else:
+                top = nofeels
         elif choice == 1:
-            redraw("publishing status of your feels:")
-            list_nopubs(config.USER)
+            if hasfeels:
+                redraw("publishing status of your feels:")
+                list_nopubs(config.USER)
+            else:
+                top = nofeels
+        elif choice == 2:
+            if hasfeels:
+                redraw("FEELS BACKUP")
+                backup_feels()
+            else:
+                top = nofeels
+        elif choice == 3:
+            redraw("loading feels backup")
+            load_backup()
+        elif choice == 4:
+            if hasfeels:
+                redraw("burying feels")
+                bury_feels()
+            else:
+                top = nofeels
+        elif choice == 5:
+            if hasfeels:
+                redraw("deleting feels")
+                delete_feels()
+            else:
+                top = nofeels
+        elif choice == 6:
+            if hasfeels:
+                redraw("!!!PURGING ALL FEELS!!!")
+                purge_feels()
+            else:
+                top = nofeels
+        elif choice == 7:
+            redraw("!!! WIPING FEELS ACCOUNT !!!")
+            wipe_account()
     else:
         redraw()
         return
 
-    redraw(intro)
-    return review_menu()
+    redraw(top+intro)
+    return review_menu(intro)
 
 def view_neighbors(users, prompt):
     '''
@@ -694,7 +749,7 @@ def view_neighbors(users, prompt):
         sortedUsers.append(user[0])
         userIndex.append(user[2])
 
-    choice = menu_handler(sortedUsers, "pick a townie to browse their feels, or type 'back' or 'q' to go home: ", 15, SETTINGS.get("rainbows", False), prompt)
+    choice = menu_handler(sortedUsers, "pick a townie to browse their feels, or type 'q' to go home: ", 15, SETTINGS.get("rainbows", False), prompt)
 
     if choice is not False:
         redraw("~{user}'s recorded feels, listed by date: \n".format(user=userIndex[choice]))
@@ -708,7 +763,6 @@ def view_feels(townie):
     '''
     generates a list of all feels by given townie and displays in
     date order; allows selection of one feel to read.
-
     '''
 
     metas, owner = generate_feels_list(townie)
@@ -733,7 +787,7 @@ def generate_feels_list(user):
     showpub = False
 
     if user == config.USER:
-        entryDir = config.USER_DATA
+        entryDir = config.MAIN_FEELS
         owner = "your"
         if core.publishing():
             showpub = True
@@ -749,29 +803,320 @@ def generate_feels_list(user):
 
     return metas, owner
 
+def backup_feels():
+    """creates a tar.gz of user's entries directory"""
+
+    backupfile = os.path.join(os.path.expanduser('~'), "feels-backup-"+time.strftime("%Y%m%d-%H%M%S")+".tar.gz")
+
+    print("""\
+i'm preparing all of your entries for backup.""")
+
+    print("...")
+    time.sleep(1)
+
+    print("""
+ready to go! a backup file will be saved to your home directory at:
+{backuploc}""".format(backuploc=backupfile))
+
+    ans = util.input_yn("""\
+
+would you like to create this backup?
+
+please enter""")
+
+    if ans:
+        if not subprocess.call(["tar", "-C", config.PATH, "-czf", backupfile, "entries"]):
+            subprocess.call(["chmod", "600", backupfile])
+            if not os.path.exists(config.BACKUPS):
+                subprocess.call(["mkdir", config.BACKUPS])
+            subprocess.call(["chmod", "700", config.BACKUPS])
+            subprocess.call(["cp", backupfile, config.BACKUPS])
+            print("\nbackup saved! i also put a copy at {backup_dir} for you.".format(backup_dir = config.BACKUPS))
+        else:
+            print(config.mystery_error)
+    else:
+        print("no problem, {friend}; come back whenever if you want a backup!".format(friend=chatter.say("friend")))
+
+    input("\n\npress <enter> to go back to managing your feels.\n\n")
+    redraw()
+
+    return
+
+def delete_feels():
+    """handles deleting feels one at a time"""
+
+    feel = input("""which day's feels do you want to load for deletion?
+
+YYYYMMDD (or 'q' to cancel)> """)
+
+    if feel in util.BACKS:
+        return
+
+    print("...")
+    time.sleep(0.1)
+    print("""\
+here's a preview of that feel. press <q> when you're done reviewing!
+-------------------------------------------------------------""")
+
+    if subprocess.call(["less", os.path.join(config.MAIN_FEELS, feel+".txt")]):
+        redraw("deleting feels")
+        print("""\
+sorry, i couldn't find feels for {date}!
+
+please try again, or type <q> to cancel.
+""".format(date=feel))
+        return delete_feels()
+
+    print("""
+-------------------------------------------------------------
+
+feels deletion is irreversible! if you're sure you want to delete this feel,
+type the date again to confirm, or 'q' to cancel.""")
+
+    confirm = input("[{feeldate}]> ".format(feeldate=feel))
+
+    if confirm == feel:
+        print("...")
+        time.sleep(0.5)
+        core.delete_feel(feel+".txt")
+        print("feels deleted!")
+    else:
+        print("deletion canceled!")
+
+    ans = util.input_yn("""do you want to delete a different feel?
+please enter""")
+
+    if ans:
+        redraw("deleting feels")
+        return delete_feels()
+    else:
+        print("okay! please come back any time if you want to delete old feels!")
+        input("\n\npress <enter> to go back to managing your feels.\n\n")
+        redraw()
+
+    return
+
+
+def purge_feels():
+    """handles deleting all feels"""
+
+    print(config.feels_purge_prompt)
+
+    print("...")
+    time.sleep(0.5)
+    print("...loading feels...")
+    time.sleep(1)
+    print("...")
+
+    feelscount = len(os.listdir(config.MAIN_FEELS))
+
+    if feelscount > 0:
+        purgecode = util.genID(5)
+
+        print("""
+
+i've loaded up all {count} of your feels for purging. if you're ready, carefully
+type the following purge code: 
+         _________
+         |       |
+         | {purgecode} |
+         |_______|
+""".format(purgecode=purgecode, count=feelscount))
+
+        ans = input("(leave blank or type anything else to cancel) > ")
+
+        if ans == purgecode:
+            print("...")
+            time.sleep(0.5)
+            unpublish()
+
+            if not subprocess.call(["rm", "-rf", config.MAIN_FEELS]):
+                subprocess.call(["mkdir", config.MAIN_FEELS])
+                core.load_files()
+                print("ALL FEELS PURGED! you're ready to start fresh!")
+            else:
+                print(config.mystery_error)
+        else:
+            print("\nfeels purge canceled! you're welcome to come back again.")
+    else:
+        print("you don't have any feels to purge, "+chatter.say("friend"))
+
+    input("\n\npress <enter> to go back to managing your feels.\n\n")
+    redraw()
+
+    return
+
+def wipe_account():
+    """handles wiping feels account"""
+
+    print(config.account_wipe_prompt)
+
+    print("...")
+    time.sleep(0.5)
+    print("...packaging up all your feels...")
+    time.sleep(1)
+    print("...")
+    purgecode = util.genID(5)
+
+    print("""
+your account is all packed up! if you're ready, carefully type the following
+purge code: 
+         _________
+         |       |
+         | {purgecode} |
+         |_______|
+""".format(purgecode=purgecode))
+
+    ans = input("(leave blank or type anything else to cancel) > ")
+
+    if ans == purgecode:
+        print("...")
+        time.sleep(0.5)
+        unpublish()
+
+        if core.publishing():
+            publishDir = os.path.join(config.PUBLIC, SETTINGS.get("publish dir"))
+            make_publish_dir(publishDir)
+
+
+        if not subprocess.call(["rm", "-rf", config.PATH]):
+            print("""
+account deleted! if you ever want to come back, you're always welcome to start
+fresh :)
+
+thank you for sharing your feels!""")
+            input("\n\npress <enter> to exit the feels engine.\n\n")
+            sys.exit(stop())
+        else:
+            print(config.mystery_error)
+    else:
+        print("\naccount deletion canceled! you're welcome to come back again.")
+
+    input("\n\npress <enter> to go back to managing your feels.\n\n")
+    redraw()
+
+    return
+
+def load_backup():
+    """
+    scans for archive files (prompting for a file location if not found), opens,
+    copies files to main feels directory (skipping ones that already exist)
+    """
+
+    print("scanning backup directory at {directory}...".format(directory=config.BACKUPS))
+
+    time.sleep(.5)
+    print("...\n")
+
+    backups = []
+
+    try:
+        for filename in os.listdir(config.BACKUPS):
+            if "feels-backup" in filename and ".tar" in filename:
+                backups.append(filename)
+    except FileNotFoundError:
+        subprocess.call(["mkdir", config.BACKUPS])
+
+    if len(backups) < 1:
+        print("""
+sorry, i didn't find any feels backups! if you have a backup file handy, please
+move it to {directory} and try running this tool again.\
+""".format(directory=config.BACKUPS))
+    else:
+        print("backup files found:\n")
+        choice = menu_handler(backups, "pick a backup file to load (or 'q' to cancel): ", 15, SETTINGS.get("rainbows", False), "backup files found:")
+
+        if choice is not False:
+            imports = core.process_backup(os.path.join(config.BACKUPS, backups[choice]))
+            for feel in imports:
+                print("importing {entry}".format(entry="-".join(util.parse_date(feel))))
+                subprocess.call(["mv", feel, config.MAIN_FEELS])
+                time.sleep(.01)
+
+            core.load_files()
+
+            tempdir = os.path.join(config.BACKUPS, os.path.splitext(os.path.splitext(os.path.basename(backups[choice]))[0])[0], "entries")
+
+            time.sleep(.5)
+            print("...\n")
+
+            if len(os.listdir(tempdir)) == 0:
+                os.rmdir(tempdir)
+                print("congrats! your feels archive has been unloaded.")
+            else:
+                print("""\
+i've unloaded as much as i can, but there are still some feels i didn't copy
+over.  this is probably because you have current feels on the same days, and i
+didn't want to overwrite them.
+
+you can check out the leftover feels yourself at:
+
+{directory}""".format(directory=tempdir))
+        else:
+            return
+
+    input("\n\npress <enter> to go back to managing your feels.\n\n")
+    return
+
+def bury_feels():
+    """queries for a feel to bury, then calls the feels burying handler.
+    """
+
+    feel = input(config.bury_feels_prompt)
+
+    if feel in util.BACKS:
+        return
+
+    print("...")
+    time.sleep(0.1)
+    print("""\
+here's a preview of that feel. press <q> when you're done reviewing!
+-------------------------------------------------------------""")
+
+    if subprocess.call(["less", os.path.join(config.MAIN_FEELS, feel+".txt")]):
+        redraw("burying feels")
+        print("""\
+sorry, i couldn't find feels for {date}!
+
+please try again, or type <q> to cancel.
+""".format(date=feel))
+        return delete_feels()
+
+    print("""
+-------------------------------------------------------------
+
+feels burying is irreversible! if you're sure you want to bury this feel,
+type the date again to confirm, or 'q' to cancel.
+""")
+
+    confirm = input("[{feeldate}]> ".format(feeldate=feel))
+
+    if confirm == feel:
+        print("...")
+        time.sleep(0.5)
+        core.bury_feel(feel+".txt")
+        print("feels buried!")
+    else:
+        print("burying canceled!")
+
+    ans = util.input_yn("""do you want to bury a different feel?  please enter""")
+
+    if ans:
+        redraw("burying feels")
+        return bury_feels()
+    else:
+        print("okay! please come back any time if you want to bury your feels!")
+        input("\n\npress <enter> to go back to managing your feels.\n\n")
+        redraw()
+
+    return
+
 def show_credits():
     '''
     prints author acknowledgements and commentary
     '''
 
-    print("""
-ttbp was written for tilde.town by ~endorphant in python. the codebase is
-publicly available on github at https://github.com/modgethanc/ttbp
-
-other contributors:
-    ~vilmibm, packaging help and gopher support
-    ~sanqui, the bug swatter
-
-if you have ideas for ttbp, you are welcome to contact me to discuss them;
-please send me tildemail or open a github issue. i am not a very experienced
-developer, and ttbp is one of my first public-facing projects, so i appreciate
-your patience while i learn how to be a better developer!
-
-i'd love to hear about your ideas and brainstorm about new features!
-
-thanks to everyone who reads, listens, writes, and feels.\
-        """)
-
+    print(config.credits)
     input("\n\npress <enter> to go back home.\n\n")
     redraw()
 
@@ -779,24 +1124,12 @@ thanks to everyone who reads, listens, writes, and feels.\
 
 ## handlers
 
-def write_entry(entry=os.path.join(config.USER_DATA, "test.txt")):
+def write_entry(entry=os.path.join(config.MAIN_FEELS, "test.txt")):
     '''
     main feels-recording handler
     '''
 
-    entered = input("""
-feels will be recorded for today, {today}.
-
-if you've already started recording feels for this day, you
-can pick up where you left off.
-
-you can write your feels in plaintext, markdown, html, or a mixture of
-these.
-
-press <enter> to begin recording your feels in your chosen text
-editor.
-
-""".format(today=time.strftime("%d %B %Y")))
+    entered = input(config.recording)
 
     if entered:
         entryFile = open(entry, "a")
@@ -806,22 +1139,24 @@ editor.
 
     left = ""
 
+    core.load_files()
+
     if SETTINGS.get("post as nopub"):
         core.toggle_nopub(os.path.basename(entry))
     else:
         if core.publishing():
-            core.write("index.html")
-            left = "posted to {url}/index.html\n\n>".format(
+            core.write_html("index.html")
+            left = "posted to {url}/index.html\n\n> ".format(
                 url="/".join(
                     [config.LIVE+config.USER,
                         str(SETTINGS.get("publish dir"))]))
 
         if SETTINGS.get('gopher'):
-            gopher.publish_gopher('feels', core.get_files())
-            left += " also posted to your ~/public_gopher!\n"
+            gopher.publish_gopher('feels', core.FILES)
+            left += "also posted to your ~/public_gopher!\n\n> "
 
-    core.load_files()
-    redraw(left + " thanks for sharing your feels!")
+    #core.load_files()
+    redraw(left + "thanks for sharing your feels!")
 
     return
 
@@ -841,6 +1176,14 @@ def set_nopubs(metas, user, prompt):
     """displays a list of entries for pub/nopub toggling.
     """
 
+    if core.publishing():
+        nopub_note = ""
+    else:
+        nopub_note = """\
+(since you're not publishing your entries, these settings don't really matter;
+none of your feels will be viewable outside of this server)"""
+        print(nopub_note + "\n")
+
     entries = []
     for entry in metas:
         pub = ""
@@ -848,14 +1191,13 @@ def set_nopubs(metas, user, prompt):
             pub = "(nopub)"
         entries.append(""+entry[4]+" ("+p.no("word", entry[2])+") "+"\t"+pub)
 
-    choice = menu_handler(entries, "pick an entry from the list, or type 'q' to go back: ", 10, SETTINGS.get("rainbows", False), prompt)
+    choice = menu_handler(entries, "pick an entry from the list to toggle nopub status, or type 'q' to go back: ", 10, SETTINGS.get("rainbows", False), prompt+"\n\n"+nopub_note)
 
     if choice is not False:
         target = os.path.basename(metas[choice][0])
         action = core.toggle_nopub(target)
         redraw(prompt)
 
-        core.write("index.html")
         if SETTINGS["gopher"]:
             gopher.publish_gopher('feels', core.get_files())
 
@@ -1107,14 +1449,14 @@ def select_publish_dir():
 
     publishDir = os.path.join(config.PUBLIC, choice)
     while os.path.exists(publishDir):
-        second = input("\n"+publishDir+"""\
- already exists!
+        second = input("""
+{pDir} already exists!
 
 setting this as your publishing directory means this program may
 delete or overwrite file there!
 
 if you're sure you want to use it, hit <enter> to confirm.
-otherwise, pick another location: """)
+otherwise, pick another location: """.format(pDir=publishDir))
 
         if second == "":
             break
@@ -1159,11 +1501,14 @@ def unpublish():
 
     if directory:
         publishDir = os.path.join(config.PUBLIC, directory)
-        subprocess.call(["rm", publishDir])
+        if os.path.exists(publishDir):
+            subprocess.call(["rm", "-rf", publishDir])
+        subprocess.call(["rm", "-rf", config.WWW])
+        make_publish_dir(SETTINGS.get("publish dir"))
+        #SETTINGS.update({"publish dir": None})
 
     if SETTINGS.get("gopher"):
-        SETTINGS.update({"gopher": False})
-        subprocess.call(["rm", config.GOPHER_PATH])
+        gopher.unpublish()
 
 def update_publishing():
     '''
@@ -1180,14 +1525,13 @@ def update_publishing():
             subprocess.call(["rm", os.path.join(config.PUBLIC, oldDir)])
         make_publish_dir(newDir)
         core.load_files()
-        core.write("index.html")
+        #core.write_html("index.html")
     else:
         unpublish()
-        SETTINGS.update({"publish dir": None})
 
     core.load(SETTINGS)
 
-def make_publish_dir(dir):
+def make_publish_dir(publish_dir):
     '''
     setup helper to create publishing directory
     '''
@@ -1200,13 +1544,18 @@ def make_publish_dir(dir):
         index.write("<h1>ttbp blog placeholder</h1>")
         index.close()
 
-    publishDir = os.path.join(config.PUBLIC, dir)
-    if os.path.exists(publishDir):
-        subprocess.call(["rm", publishDir])
+    if core.publishing():
+        live = os.path.join(config.PUBLIC, publish_dir)
+        if os.path.exists(live):
+            subprocess.call(["rm", live])
 
-    subprocess.call(["ln", "-s", config.WWW, publishDir])
+        subprocess.call(["ln", "-s", config.WWW, live])
 
-    print("\n\tpublishing to "+config.LIVE+config.USER+"/"+SETTINGS.get("publish dir")+"/\n\n")
+        return "\n\tpublishing to "+config.LIVE+config.USER+"/"+SETTINGS.get("publish dir")+"/\n\n"
+
+    else:
+        return ""
+    #print("\n\tpublishing to "+config.LIVE+config.USER+"/"+SETTINGS.get("publish dir")+"/\n\n")
 
 def update_gopher():
     '''
@@ -1255,7 +1604,7 @@ def update_user_version():
 
     time.sleep(1)
     print("...")
-    time.sleep(1)
+    time.sleep(0.5)
 
     userVersion = ""
     (x, y, z) = [0, 0, 0]
@@ -1284,7 +1633,7 @@ def update_user_version():
 
             # repopulate html files
             core.load_files()
-            core.write("index.html")
+            #core.write_html("index.html")
 
         # add publishing setting
         print("\nnew feature!\n")
@@ -1335,6 +1684,19 @@ def update_user_version():
             SETTINGS.update({"post as nopub": False})
             save_settings()
 
+        if z < 3:
+            # update permalink css
+            style = open(os.path.join(config.USER_CONFIG, 'style.css'), 'r').read()
+            if "permalink" not in style:
+                print("adding new css...")
+                with open(os.path.join(config.USER_CONFIG, 'style.css'), 'a') as f:
+                    f.write("""
+.entry p.permalink {
+  font-size: .6em;
+  font-color: #808080;
+  text-align: right;
+}""")
+
     print("""
 you're all good to go, """+chatter.say("friend")+"""! please contact ~endorphant if
 something strange happened to you during this update.
@@ -1355,6 +1717,14 @@ something strange happened to you during this update.
     if y < 11 or z < 2:
         # version 0.11.2 patch notes
         print(config.UPDATES["0.11.2"])
+
+    if y < 11 or z < 3:
+        # version 0.11.3 patch notes
+        print(config.UPDATES["0.11.3"])
+
+    if y < 12:
+        # version 0.12.0 patch notes
+        print(config.UPDATES["0.12.0"])
 
     confirm = ""
 
