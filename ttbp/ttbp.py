@@ -51,7 +51,7 @@ from . import chatter
 from . import gopher
 from . import util
 
-__version__ = "0.12.0"
+__version__ = "0.12.1"
 __author__ = "endorphant <endorphant@tilde.town)"
 
 p = inflect.engine()
@@ -529,10 +529,11 @@ def main_menu():
     '''
 
     menuOptions = [
-            "record your feels",
+            "record some feels",
             "manage your feels",
             "check out your neighbors",
             "browse global feels",
+            "visit your subscriptions",
             "scribble some graffiti",
             "change your settings",
             "send some feedback",
@@ -567,19 +568,23 @@ def main_menu():
         view_neighbors(users, prompt)
     elif choice == '3':
         redraw("most recent global entries")
-        view_feed()
+        view_global_feed()
     elif choice == '4':
-        graffiti_handler()
+        intro = "your subscriptions list is private; no one but you will know who you're following.\n\n> here are some options for your subscriptions:"
+        redraw(intro)
+        subscription_handler(intro)
     elif choice == '5':
+        graffiti_handler()
+    elif choice == '6':
         redraw("now changing your settings. press <ctrl-c> if you didn't mean to do this.")
         core.load(setup()) # reload settings to core
-    elif choice == '6':
+    elif choice == '7':
         redraw("you're about to send mail to ~endorphant about ttbp")
         feedback_menu()
-    elif choice == '7':
+    elif choice == '8':
         redraw()
         show_credits()
-    elif choice == '8':
+    elif choice == '9':
         subprocess.call(["lynx", os.path.join(config.INSTALL_PATH, "..", "doc", "manual.html")])
         redraw()
     elif choice in QUITS:
@@ -689,6 +694,56 @@ def review_menu(intro=""):
 
     redraw(top+intro)
     return review_menu(intro)
+
+def subscription_handler(intro=""):
+    '''
+    submenu for managing subscriptions
+    '''
+
+    if not os.path.exists(config.SUBS):
+        subprocess.call(["touch", config.SUBS])
+        subprocess.call(["chmod", "600", config.SUBS])
+
+    subs_raw = []
+    if os.path.isfile(config.SUBS):
+        for line in open(config.SUBS, "r"):
+            subs_raw.append(line.rstrip())
+
+    subs = []
+    all_users = core.find_ttbps()
+    for name in subs_raw:
+        if name in all_users:
+            subs.append(name)
+
+    menuOptions = [
+            "view subscribed feed",
+            "manage subscriptions"
+            ]
+
+    util.print_menu(menuOptions, SETTINGS.get("rainbows", False))
+
+    choice = util.list_select(menuOptions, "what would you like to do with your subscriptions? (or 'q' to return home) ")
+
+    top = ""
+
+    if choice is not False:
+        if choice == 0:
+            if len(subs) > 0:
+                prompt = "most recent entries from your subscribed pals:"
+                redraw(prompt)
+                view_subscribed_feed(subs, prompt)
+            else:
+                intro = "it doesn't look like you have any subscriptions to see! add pals with 'manage subscriptions' here."
+        elif choice == 1:
+            prompt = "options for managing your subscriptions:"
+            redraw(prompt)
+            subscription_manager(subs, prompt)
+    else:
+        redraw()
+        return
+
+    redraw(top+intro)
+    return subscription_handler(intro)
 
 def view_neighbors(users, prompt):
     '''
@@ -1275,14 +1330,43 @@ def show_entry(filename):
 
     return
 
-def view_feed():
+def view_global_feed():
     '''
-    generate and display list of most recent global entries
+    display list of most recent global entries
+    '''
+
+    (entries, metas)= feed_list(core.find_ttbps())
+    list_entries(metas, entries, "recent global entries:")
+    redraw()
+
+    return
+
+def view_subscribed_feed(subs, prompt=""):
+    '''
+    display list of most recent entries on user's subscribed list.
+    '''
+    (entries, metas)= feed_list(subs, 0)
+    list_entries(metas, entries, prompt)
+    redraw()
+
+    return
+
+def feed_list(townies, delta=30):
+    '''
+    given a list of townies, generate a list of 50 most recent entries within
+    given interval (default 30 days; 0 days for no limit). validates against
+    townies with ttbp config files.
+
+    returns a tuple of (entries, metas)
     '''
 
     feedList = []
+    all_users = core.find_ttbps()
 
-    for townie in core.find_ttbps():
+    for townie in townies:
+        if townie not in all_users:
+            continue
+
         entryDir = os.path.join("/home", townie, ".ttbp", "entries")
         try:
             filenames = os.listdir(entryDir)
@@ -1290,36 +1374,122 @@ def view_feed():
             filenames = []
 
         for entry in filenames:
-            ## hardcoded display cutoff at 30 days
-            if core.valid(entry):
-                year = int(entry[0:4])
-                month = int(entry[4:6])
-                day = int(entry[6:8])
-                datecheck = datetime.date(year, month, day)
-                displayCutoff = datetime.date.today() - datetime.timedelta(days=30)
+            if delta > 0:
+                if core.valid(entry):
+                    year = int(entry[0:4])
+                    month = int(entry[4:6])
+                    day = int(entry[6:8])
+                    datecheck = datetime.date(year, month, day)
+                    displayCutoff = datetime.date.today() - datetime.timedelta(days=delta)
 
-                if datecheck > displayCutoff:
-                    feedList.append(os.path.join(entryDir, entry))
+                    if datecheck > displayCutoff:
+                        feedList.append(os.path.join(entryDir, entry))
+            else:
+                feedList.append(os.path.join(entryDir, entry))
 
     metas = core.meta(feedList)
     metas.sort(key = lambda entry:entry[3])
     metas.reverse()
 
     entries = []
-    for entry in metas[0:10]:
+    for entry in metas[0:50]:
         pad = ""
         if len(entry[5]) < 8:
             pad = "\t"
 
         entries.append("~{user}{pad}\ton {date} ({wordcount})".format(
-                user=entry[5], pad=pad, date=entry[3], 
+                user=entry[5], pad=pad, date=entry[3],
                 wordcount=p.no("word", entry[2])))
 
-    list_entries(metas, entries, "most recent global entries:")
+    return entries, metas
 
-    redraw()
+def subscription_manager(subs, intro=""):
+    '''
+    '''
 
-    return
+    menuOptions = [
+            "add pals",
+            "remove pals"
+            ]
+
+    util.print_menu(menuOptions, SETTINGS.get("rainbows", False))
+
+    choice = util.list_select(menuOptions, "what do you want to do? (enter 'q' to go back) ")
+
+    top = ""
+
+    if choice is not False:
+        if choice == 0:
+            prompt = "list of townies recording feels:"
+            redraw(prompt)
+            subs = subscribe_handler(subs, prompt)
+        elif choice == 1:
+            prompt = "list of townies you're subscribed to:"
+            redraw(prompt)
+            subs = unsubscribe_handler(subs, prompt)
+    else:
+        redraw()
+        return
+
+    redraw(top+intro)
+    return subscription_manager(subs, intro)
+
+def unsubscribe_handler(subs, prompt):
+    '''
+    displays a list of currently subscribed users and toggles deletion.
+    '''
+
+    subs.sort()
+
+    choice = menu_handler(subs, "pick a pal to unsubscribe (or 'q' to cancel): ", 15, SETTINGS.get("rainbows", False), "list of townies recording feels:")
+
+    if choice is not False:
+        townie = subs[choice]
+        subs.remove(townie)
+        save_subs(subs)
+        redraw("{townie} removed! \n\n> {prompt}".format(townie=townie, prompt=prompt))
+        return unsubscribe_handler(subs, prompt)
+    else:
+        redraw()
+        return subs
+
+def subscribe_handler(subs, prompt):
+    '''
+    displays a list of all users not subscribed to and toggles adding,
+    returning the subs list when finished.
+    '''
+
+    candidates = []
+
+    for townie in core.find_ttbps():
+        if townie not in subs:
+            candidates.append(townie)
+
+    candidates.sort()
+
+    choice = menu_handler(candidates, "pick a townie to add to your subscriptions (or 'q' to cancel): ", 15, SETTINGS.get("rainbows", False), "list of townies recording feels:")
+
+    if choice is not False:
+        townie = candidates[choice]
+        subs.append(townie)
+        save_subs(subs)
+        redraw("{townie} added! \n\n> {prompt}".format(townie=townie, prompt=prompt))
+        return subscribe_handler(subs, prompt)
+    else:
+        redraw()
+        return subs
+
+def save_subs(subs):
+    '''
+    takes given subscription list and saves it into the user config,
+    overwriting whatever is already there.
+    '''
+
+    subs_file = open(config.SUBS, 'w')
+
+    for townie in subs:
+        subs_file.write(townie + "\n")
+    subs_file.close()
 
 def graffiti_handler():
     '''
@@ -1710,21 +1880,25 @@ something strange happened to you during this update.
         # version 0.11.0 patch notes
         print(config.UPDATES["0.11.0"])
 
-    if y < 11 or z < 1:
+    if y < 11 and z < 1:
         # version 0.11.1 patch notes
         print(config.UPDATES["0.11.1"])
 
-    if y < 11 or z < 2:
+    if y < 11 and z < 2:
         # version 0.11.2 patch notes
         print(config.UPDATES["0.11.2"])
 
-    if y < 11 or z < 3:
+    if y < 11 and z < 3:
         # version 0.11.3 patch notes
         print(config.UPDATES["0.11.3"])
 
     if y < 12:
         # version 0.12.0 patch notes
         print(config.UPDATES["0.12.0"])
+
+    if z < 1:
+        # version 0.12.1 patch notes
+        print(config.UPDATES["0.12.1"])
 
     confirm = ""
 
