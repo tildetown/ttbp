@@ -373,7 +373,10 @@ def publishing(username=config.USER):
         ttbprc = SETTINGS
 
     else:
-        ttbprc = json.load(open(os.path.join("/home", username, ".ttbp", "config", "ttbprc")))
+        try:
+            ttbprc = json.load(open(os.path.join("/home", username, ".ttbp", "config", "ttbprc")))
+        except IOError:
+            return False
 
     return ttbprc.get("publishing")
 
